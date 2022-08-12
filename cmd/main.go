@@ -1,20 +1,33 @@
-package cmd
+package main
 
 import (
-	"log"
+	"fmt"
+	"net/http"
 	"os"
 
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/rs/zerolog/log"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/lsaavedra/go-chat/configs"
-	"github.com/lsaavedra/go-chat/db"
-	"github.com/lsaavedra/go-chat/router"
-	"github.com/lsaavedra/go-chat/users"
+	"go-chat/bot"
+	"go-chat/chatrooms"
+	"go-chat/configs"
+	"go-chat/db"
+	"go-chat/messages"
+	"go-chat/router"
+	"go-chat/users"
+)
+
+const (
+	DefaultMigrationPath = "file://db/migrations"
+	connectionError      = "Error setting up DB connection"
 )
 
 func main() {
-	log.Print("starting benefits service \n")
+	log.Print("starting go-chat service \n")
 
 	environment, err := configs.Environment{
 		ServerHost: os.Getenv(configs.ServerHostKey),
@@ -23,7 +36,7 @@ func main() {
 	}.Check()
 
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err)
 	}
 
 	conn, err := gorm.Open(postgres.New(postgres.Config{
@@ -34,34 +47,94 @@ func main() {
 	})
 
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err)
 	}
 
 	initialMigration(conn)
+	//migrateSchemaWithPath(conn)
 
 	usersDB := db.NewUsersDB(conn)
+	messagesDB := db.NewMessagesDB(conn)
 
-	mgr := users.UsersMgr{
-		UsersDB: usersDB,
+	usersMgr := users.NewUsersMgr(usersDB)
+	messagesMgr := messages.NewMessagesMgr(messagesDB)
+
+	usersHandler := users.Handler{
+		UsersMgr: usersMgr,
 	}
-
-	handler := users.Handler{
-		UsersMgr: mgr,
+	messagesHandler := messages.Handler{
+		MessagesMgr: messagesMgr,
 	}
+	botClient := bot.StocksClient{
+		Getter: &http.Client{},
+	}
+	botMgr := bot.NewBotMgr(botClient)
 
-	r := router.Router(handler)
+	chatroomsHandler := chatrooms.Handler{
+		BotManager: botMgr,
+	}
+	apiHandlers := router.NewAPIHandlers(&usersHandler, &messagesHandler, &chatroomsHandler)
+	r := router.Router(apiHandlers)
+
+	go chatroomsHandler.HandleMessages()
 
 	log.Print("successfully started go-chat service \n")
 	r.Start(":" + environment.ServerPort)
 
 }
 
-func initialMigration(db *gorm.DB) {
+func initialMigration(conn *gorm.DB) {
 	log.Print("starting db migration \n")
-	err := db.AutoMigrate()
+	err := conn.AutoMigrate(
+		&db.User{},
+		&db.Message{},
+	)
 
 	if err != nil {
-		log.Fatal("unable to run migrations")
+		log.Fatal().Err(err).Msg("unable to run migrations")
 	}
 	log.Print("finished migrations \n")
+}
+
+// MigrateSchemaWithPath runs new upward data migrations.
+func migrateSchemaWithPath(conn *gorm.DB) {
+	user := "postgres"
+	pwd := "postgres"
+	host := "localhost"
+	port := "7004"
+	dbName := "chatrooms"
+	forceMigrations := true
+
+	databaseURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable&search_path=go-chat,public", user, pwd, host, port, dbName)
+
+	migrations, err := migrate.New(DefaultMigrationPath, databaseURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("error connecting to the database during migration")
+	}
+
+	if forceMigrations {
+		if err := migrations.Force(-1); err != nil {
+			log.Fatal().Err(err).Msg("error running migration force")
+		}
+	}
+
+	if err = migrations.Up(); err != nil {
+		if err != migrate.ErrNoChange {
+			log.Fatal().Err(err).Msg("error running migration up")
+		}
+
+		log.Error().Msgf("migration: %v", err)
+	}
+
+	defer func() {
+		sourceErr, databaseErr := migrations.Close()
+		if sourceErr != nil {
+			log.Error().Err(sourceErr).Send()
+			//log.Err(sourceErr).Send()
+		}
+		if databaseErr != nil {
+			log.Error().Err(databaseErr).Send()
+			//log.Err(databaseErr).Send()
+		}
+	}()
 }

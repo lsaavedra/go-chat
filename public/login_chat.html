@@ -3,14 +3,16 @@
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
 <body>
-<form id="form" class="login">
-    <i class="fa fa-user fa-5x"></i>
-    <input id="userName" name="userName" placeholder="Enter your user name" autofocus>
-    <p class="form-field-err"></p>
-    <input id="password" name="password" type="password" placeholder="Enter your password">
-    <p class="form-field-err"></p>
-    <button type="submit" form="form" class="login__submit-button">Submit</button>
-</form>
+    <form id="form" class="login">
+        <i class="fa fa-user fa-5x"></i>
+        <input id="userName" name="userName" placeholder="Enter your user name" autofocus>
+        <p class="form-field-err"></p>
+        <input id="password" name="password" type="password" placeholder="Enter your password">
+        <p class="form-field-err"></p>
+        <button type="submit" form="form" class="login__submit-button">Submit</button>
+    </form>
+    <div id="login-msg"></div>
+</body>
 <script>
     const instance = axios.create({
         timeout: 1000,
@@ -30,31 +32,13 @@
             password: password
         })
             .then(response => {
-                /*
-                console.log(response.cookie)
-                var cookieName = 'UserName';
-                var cookieValue = 'HelloWorld';
-                var myDate = new Date();
-                document.cookie = cookieName +"=" + cookieValue + ";expires=" + myDate
-                    + ";domain=localhost:8080;path=/";
-                window.location.href = 'http://localhost:8080/chatrooms/2';
-
-                 */
-                console.log(response)
+                let nickname = response.data.nick_name
+                console.log(response.data.nick_name)
+                window.location.href = 'http://localhost:8080/chatrooms/2?nickname=' + nickname;
             })
             .catch((error) => {
-                console.error('invalid credentials');
+                //console.error('invalid credentials');
+                alert(error.response.data.message)
             })
     }
 </script>
-<!--
-<script type="text/javascript">
-    var cookieName = 'HelloWorld';
-    var cookieValue = 'HelloWorld';
-    var myDate = new Date();
-    myDate.setMonth(myDate.getMonth() + 12);
-    document.cookie = cookieName +"=" + cookieValue + ";expires=" + myDate
-        + ";domain=.example.com;path=/";
-</script>
-</body>
--->

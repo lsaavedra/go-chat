@@ -6,7 +6,7 @@
     <script type="text/javascript">
         window.addEventListener("DOMContentLoaded", (_) => {
             let websocket = new WebSocket("ws://" + window.location.host + "/websocket");
-            let room = document.getElementById("chat-text");
+            let chatHistory = document.getElementById("chat-text");
 
             // This to set the nickname value field directly from url
             const params = new URLSearchParams(window.location.search) // para traer el nickname de la url
@@ -24,8 +24,8 @@
                 let p = document.createElement("p");
                 p.innerHTML = `<strong>${data.username}</strong>: ${data.text}`;
 
-                room.append(p);
-                room.scrollTop = room.scrollHeight; // Auto scroll to the bottom
+                chatHistory.append(p);
+                chatHistory.scrollTop = chatHistory.scrollHeight; // Auto scroll to the bottom
             });
 
             let form = document.getElementById("input-form");
@@ -33,10 +33,13 @@
                 event.preventDefault();
                 let username = document.getElementById("input-username");
                 let text = document.getElementById("input-text");
+                let roomValue = 2 // this value need to be changed to support multiple rooms
                 websocket.send(
                     JSON.stringify({
                         username: username.value,
                         text: text.value,
+                        room : roomValue,
+                        timestamp : new Date().toISOString(),
                     })
                 );
                 text.value = "";
