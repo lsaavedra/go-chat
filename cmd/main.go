@@ -73,16 +73,21 @@ func main() {
 	botClient := bot.StocksClient{
 		Getter: &http.Client{},
 	}
-	botMgr := bot.NewBotMgr(botClient)
+	botMgr := bot.NewBotMgr(botClient, queueCon)
 
 	chatroomsHandler := chatrooms.Handler{
 		BotManager: botMgr,
 		QueueCon:   queueCon,
 	}
+
+	msgProcessor := messages.NewProcessor(messagesMgr, botMgr, queueCon)
+
 	apiHandlers := router.NewAPIHandlers(&usersHandler, &messagesHandler, &chatroomsHandler)
 	r := router.Router(apiHandlers)
 
 	go chatroomsHandler.HandleMessages()
+	go msgProcessor.ReadAndProcess()
+	go chatroomsHandler.ReadAndProcess()
 
 	log.Print("successfully started go-chat service \n")
 	r.Start(":" + environment.ServerPort)
@@ -147,7 +152,6 @@ func migrateSchemaWithPath(conn *gorm.DB) {
 
 func failOnError(err error, msg string) {
 	if err != nil {
-		//log.Panicf("%s: %s", msg, err)
 		log.Panic().Err(err).Msg(msg)
 	}
 }

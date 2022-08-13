@@ -33,7 +33,7 @@
                 event.preventDefault();
                 let username = document.getElementById("input-username");
                 let text = document.getElementById("input-text");
-                let roomValue = 2 // this value need to be changed to support multiple rooms
+                let roomValue = "2" // this value need to be changed to support multiple rooms
                 websocket.send(
                     JSON.stringify({
                         username: username.value,
