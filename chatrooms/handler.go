@@ -3,13 +3,14 @@ package chatrooms
 import (
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"regexp"
 	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo"
+	rabbit "github.com/rabbitmq/amqp091-go"
+	"github.com/rs/zerolog/log"
 
 	"go-chat/api"
 )
@@ -32,6 +33,7 @@ type (
 	}
 	Handler struct {
 		BotManager botMgr
+		QueueCon   *rabbit.Connection
 	}
 	connection struct {
 		ws   *websocket.Conn
@@ -55,7 +57,7 @@ func (h *Handler) HandleConnections(c echo.Context) error {
 	// resolving point 1.
 	ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err)
 	}
 	// ensure connection close when function returns
 	defer ws.Close()

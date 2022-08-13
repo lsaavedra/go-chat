@@ -13,6 +13,7 @@ import (
 const (
 	stockMessage           = "%v quote is $%v per share"
 	stockNotFoundedMessage = "Invalid stock code for command /stock=%v"
+	noDataIdentifier       = "N/D"
 )
 
 type (
@@ -42,7 +43,7 @@ func (bm *BotMgr) GetStockPrice(ctx echo.Context, stockCode string) (string, *ap
 func readFileAndGetStockPrice(stockData StockData) string {
 	stockValues := strings.Split(stockData.Data[1][0], ",")
 	currentStockPrice := stockValues[3]
-	if stockValues[3] == "N/D" {
+	if stockValues[3] == noDataIdentifier {
 		return fmt.Sprintf(stockNotFoundedMessage, stockData.StockCode)
 	}
 	return fmt.Sprintf(stockMessage, strings.ToUpper(stockData.StockCode), currentStockPrice)

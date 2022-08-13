@@ -8,6 +8,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	rabbit "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog/log"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -53,6 +54,10 @@ func main() {
 	initialMigration(conn)
 	//migrateSchemaWithPath(conn)
 
+	queueCon, err := rabbit.Dial("amqp://guest:guest@localhost:5672/") // change to env vars
+	failOnError(err, "Failed to connect to RabbitMQ")
+	defer queueCon.Close()
+
 	usersDB := db.NewUsersDB(conn)
 	messagesDB := db.NewMessagesDB(conn)
 
@@ -72,6 +77,7 @@ func main() {
 
 	chatroomsHandler := chatrooms.Handler{
 		BotManager: botMgr,
+		QueueCon:   queueCon,
 	}
 	apiHandlers := router.NewAPIHandlers(&usersHandler, &messagesHandler, &chatroomsHandler)
 	r := router.Router(apiHandlers)
@@ -137,4 +143,11 @@ func migrateSchemaWithPath(conn *gorm.DB) {
 			//log.Err(databaseErr).Send()
 		}
 	}()
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		//log.Panicf("%s: %s", msg, err)
+		log.Panic().Err(err).Msg(msg)
+	}
 }

@@ -72,11 +72,7 @@ func (c StocksClient) GetStockFile(stockCode string) (StockData, error) {
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.Getter.Do(req)
-	if err != nil {
-		log.Error().Err(err)
-		//return [][]string{}, err
-		return StockData{}, err
-	}
+
 	defer resp.Body.Close()
 
 	switch {
@@ -95,17 +91,4 @@ func (c StocksClient) GetStockFile(stockCode string) (StockData, error) {
 		}
 		return StockData{StockCode: stockCode, Data: data}, nil
 	}
-	/*
-		if resp.StatusCode == http.StatusOK {
-
-			reader := csv.NewReader(resp.Body)
-			reader.Comma = ';'
-			data, err := reader.ReadAll()
-			if err != nil {
-				return nil, err
-			}
-			return data, nil
-		}
-		return [][]string{}, fmt.Errorf("invalid status code: %v", resp.StatusCode)
-	*/
 }
