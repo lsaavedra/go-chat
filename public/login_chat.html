@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<head>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <form id="form" class="login">
+        <i class="fa fa-user fa-5x"></i>
+        <input id="userName" name="userName" placeholder="Enter your user name" autofocus>
+        <p class="form-field-err"></p>
+        <input id="password" name="password" type="password" placeholder="Enter your password">
+        <p class="form-field-err"></p>
+        <button type="submit" form="form" class="login__submit-button">Submit</button>
+    </form>
+    <div id="login-msg"></div>
+</body>
+<script>
+    const instance = axios.create({
+        timeout: 1000,
+    });
+    const form = document.querySelector('.login');
+
+
+    form.onsubmit = (event) => {
+        event.preventDefault();
+
+        console.log(event.target);
+        const userName = event.target.querySelector('#userName').value;
+        const password = event.target.querySelector('#password').value;
+
+        instance.post('/api/v1/users/login', {
+            email: userName,
+            password: password
+        })
+            .then(response => {
+                let nickname = response.data.nick_name
+                console.log(response.data.nick_name)
+                window.location.href = 'http://localhost:8080/chatrooms/2?nickname=' + nickname;
+            })
+            .catch((error) => {
+                //console.error('invalid credentials');
+                alert(error.response.data.message)
+            })
+    }
+</script>
