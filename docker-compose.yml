@@ -1,0 +1,38 @@
+version: '2.1'
+services:
+  postgres:
+    image: arm64v8/postgres:9-stretch
+    volumes:
+      - ./db/migrations/1_initialSchema.up.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "7004:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: 'rabbitmq'
+    ports:
+      - 5672:5672
+      - 15672:15672
+    volumes:
+      - ~/.docker-conf/rabbitmq/data/:/var/lib/rabbitmq/
+      - ~/.docker-conf/rabbitmq/log/:/var/log/rabbitmq
+    networks:
+      - rabbitmq_go_net
+
+  redis:
+    image: "redis:alpine"
+    hostname: redis
+    ports:
+      - "6379:6379"
+
+networks:
+  rabbitmq_go_net:
+    driver: bridge
