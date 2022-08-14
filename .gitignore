@@ -13,3 +13,14 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
+
+.idea/
+.vscode/
+
+local.env
+.DS_Store
+
+go-chat
+go-chat.exe
+
+tmp/
