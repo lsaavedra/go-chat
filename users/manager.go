@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/labstack/gommon/log"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/bcrypt"
 
 	"go-chat/api"
@@ -34,18 +34,15 @@ func NewUsersMgr(usersDB *db.UsersDB) *UsersMgr {
 }
 
 func (m *UsersMgr) Create(body api.CreateUserRequest) (uuid.UUID, *api.APIError) {
-	log.Print("creating new user \n")
 	dbUser, err := m.UsersDB.GetByEmail(body.Email)
 	if err != nil {
 		return uuid.Nil, &api.APIError{HTTPStatusCode: http.StatusInternalServerError, Cause: err}
 	}
 	if dbUser != (db.User{}) {
-		//return uuid.Nil, errors.New("user already exists")
 		return uuid.Nil, &api.APIError{HTTPStatusCode: http.StatusBadRequest, Msg: userAlreadyExistsMsg}
 	}
 	encodedPWD, err := encrypt(body.Password)
 	if err != nil {
-		//return uuid.Nil, err
 		return uuid.Nil, &api.APIError{HTTPStatusCode: http.StatusInternalServerError, Cause: err}
 	}
 	user := db.User{
@@ -62,7 +59,7 @@ func (m *UsersMgr) Create(body api.CreateUserRequest) (uuid.UUID, *api.APIError)
 		return uuid.Nil, &api.APIError{HTTPStatusCode: http.StatusInternalServerError, Cause: err}
 	}
 
-	log.Print("succesfully added new user \n")
+	log.Info().Msg("succesfully added new user \n")
 
 	return insertID, nil
 }
@@ -70,16 +67,13 @@ func (m *UsersMgr) Create(body api.CreateUserRequest) (uuid.UUID, *api.APIError)
 func (m *UsersMgr) VerifyForLogin(body api.ValidateUserRequest) (api.ValidatedUserResponse, *api.APIError) {
 	dbUser, err := m.UsersDB.GetByEmail(body.Email)
 	if err != nil {
-		//return api.ValidatedUserResponse{}, errors.New("error reading user from db")
 		return api.ValidatedUserResponse{}, &api.APIError{HTTPStatusCode: http.StatusInternalServerError, Cause: err}
 	}
 	if dbUser == (db.User{}) {
-		//return api.ValidatedUserResponse{}, errors.New("users not exists")
 		return api.ValidatedUserResponse{}, &api.APIError{HTTPStatusCode: http.StatusBadRequest, Msg: userNotExistMsg}
 	}
 
 	if !checkPwd(dbUser.Password, body.Password) {
-		//return api.ValidatedUserResponse{}, errors.New("invalid credentials")
 		return api.ValidatedUserResponse{}, &api.APIError{HTTPStatusCode: http.StatusBadRequest, Msg: invalidCredentialMsg}
 	}
 

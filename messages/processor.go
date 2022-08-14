@@ -10,75 +10,59 @@ import (
 	"go-chat/chatrooms"
 )
 
+const messagesChannelName = "chat-channel"
+
 type (
 	Processor struct {
 		BotMgr      *bot.BotMgr
 		MessagesMgr *MessagesMgr
-		Conn        *rabbit.Connection
+		publisher   publisher
+	}
+	publisher interface {
+		Consume(channelName string) (<-chan rabbit.Delivery, error)
 	}
 )
 
-func NewProcessor(msgMgr *MessagesMgr, botMgr *bot.BotMgr, conn *rabbit.Connection) *Processor {
+func NewProcessor(msgMgr *MessagesMgr, botMgr *bot.BotMgr, publisher publisher) *Processor {
 	return &Processor{
 		BotMgr:      botMgr,
 		MessagesMgr: msgMgr,
-		Conn:        conn,
+		publisher:   publisher,
 	}
 }
 
-func (p *Processor) ReadAndProcess() {
-	ch, err := p.Conn.Channel()
-	failOnError(err, "Failed to open a channel")
-	defer ch.Close()
+func (p *Processor) WaitForQueueMsgs() {
+	msgs, err := p.publisher.Consume(messagesChannelName)
+	if err != nil {
+		log.Error().Err(err)
+	}
 
-	q, err := ch.QueueDeclare(
-		"chat-channel", // name
-		false,          // durable
-		false,          // delete when unused
-		false,          // exclusive
-		false,          // no-wait
-		nil,            // arguments
-	)
-	failOnError(err, "Failed to declare a queue")
-
-	msgs, err := ch.Consume(
-		q.Name, // queue
-		"",     // consumer
-		true,   // auto-ack
-		false,  // exclusive
-		false,  // no-local
-		false,  // no-wait
-		nil,    // args
-	)
-	failOnError(err, "Failed to register a consumer")
-
-	var forever chan struct{}
+	var chatChannel chan struct{}
 
 	go func() {
 		for d := range msgs {
-			log.Printf("Channel: %s - Received a message: %s", q.Name, d.Body)
+			log.Printf("Channel: %s - Received a message: %s", messagesChannelName, d.Body)
 			var chatMessage chatrooms.ChatMessage
 			err := json.Unmarshal(d.Body, &chatMessage)
 			if err != nil {
-				// ojo con esto porque n o debería poder pasar
 				log.Error().Err(err).Msg("failed unmarshalling message")
 			}
 			if chatMessage.IsStockCommand() {
 				log.Info().Msg("Calling bot manager")
-				err := p.BotMgr.GetAndPublishStockMessage(chatMessage)
+				err := p.BotMgr.GetAndPublishStockPrice(chatMessage)
 				if err != nil {
 					log.Error().Err(err)
 				}
 
 			} else {
 				log.Info().Msg("Calling msg manager")
-				p.MessagesMgr.CreateFromEvent(chatMessage)
+				p.MessagesMgr.SaveMsg(chatMessage)
 			}
 
 		}
 	}()
-	log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
-	<-forever
+	log.Info().Msg("Waiting for new messages in message processor")
+	<-chatChannel
 }
 
 func failOnError(err error, msg string) {

@@ -26,12 +26,12 @@ AS
 $$
 BEGIN
     NEW.updated_at = now();
-RETURN NEW;
+    RETURN NEW;
 END;
 $$;
 
 -- users table
-CREATE TABLE IF NOT EXISTS "users"
+CREATE TABLE IF NOT EXISTS "chatrooms"."users"
 (
     "id"                uuid    default uuid_generate_v4(),
     "first_name"              varchar(32) not null,
@@ -42,6 +42,23 @@ CREATE TABLE IF NOT EXISTS "users"
     "created_at" timestamp with time zone default now(),
     "updated_at" timestamp with time zone default now(),
     "deleted_at" timestamp with time zone,
-    PRIMARY KEY ("id")
- );
+    PRIMARY KEY ("id"),
+    CONSTRAINT nickname_unique UNIQUE (nickname, password)
+);
 
+-- messages table
+CREATE TABLE IF NOT EXISTS "chatrooms"."messages"
+(
+    "id"                uuid    default uuid_generate_v4(),
+    "body"              varchar(256) not null,
+    "chatroom"              varchar(50) not null,
+    "user_id" uuid not null ,
+    "created_at" timestamp with time zone default now(),
+    "updated_at" timestamp with time zone default now(),
+    "deleted_at" timestamp with time zone,
+    PRIMARY KEY ("id"),
+    CONSTRAINT fk_user
+        FOREIGN KEY("user_id")
+            REFERENCES "chatrooms"."users"("id")
+            ON DELETE CASCADE
+);

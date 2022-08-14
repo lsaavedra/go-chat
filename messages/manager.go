@@ -4,7 +4,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
-	"go-chat/api"
 	"go-chat/chatrooms"
 	"go-chat/db"
 )
@@ -15,38 +14,25 @@ type (
 	}
 	MessagesMgr struct {
 		MessagesDB *db.MessagesDB
+		UsersDB    *db.UsersDB
 	}
 )
 
-func NewMessagesMgr(messagesDB *db.MessagesDB) *MessagesMgr {
+func NewMessagesMgr(messagesDB *db.MessagesDB, usersDB *db.UsersDB) *MessagesMgr {
 	return &MessagesMgr{
 		MessagesDB: messagesDB,
+		UsersDB:    usersDB,
 	}
 }
 
-func (m *MessagesMgr) Create(body api.CreateMessageRequest) (uuid.UUID, error) {
-	log.Print("creating new message \n")
-	message := db.Message{
-		ID:       uuid.New(),
-		UserID:   body.UserID,
-		Body:     body.Body,
-		Chatroom: body.Chatroom,
-	}
-	insertID, err := m.MessagesDB.Create(message)
+func (m *MessagesMgr) SaveMsg(body chatrooms.ChatMessage) (uuid.UUID, error) {
+	user, err := m.UsersDB.GetByNickName(body.Username)
 	if err != nil {
 		return uuid.Nil, err
 	}
-
-	log.Print("succesfully added new message \n")
-
-	return insertID, nil
-}
-
-func (m *MessagesMgr) CreateFromEvent(body chatrooms.ChatMessage) (uuid.UUID, error) {
-	log.Print("creating new message \n")
 	message := db.Message{
 		ID:       uuid.New(),
-		UserID:   uuid.Nil,
+		UserID:   user.ID,
 		Body:     body.Text,
 		Chatroom: string(body.Room),
 	}
@@ -55,7 +41,6 @@ func (m *MessagesMgr) CreateFromEvent(body chatrooms.ChatMessage) (uuid.UUID, er
 		return uuid.Nil, err
 	}
 
-	log.Print("succesfully added new message \n")
-
+	log.Info().Msg("message save ok\n")
 	return insertID, nil
 }

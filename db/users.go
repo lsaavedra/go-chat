@@ -2,32 +2,10 @@ package db
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgconn"
 	"gorm.io/gorm"
-)
-
-const (
-	constraintUniqueContactValue = "unique_contact_value"
-	constraintContactFKPartner   = "fk_contact_information_partner"
-)
-
-var (
-	constraintToErr = map[string]error{
-		constraintUniqueContactValue: ErrContactAlreadyExists,
-		constraintContactFKPartner:   ErrPartnerNotExist,
-	}
-
-	ErrContactAlreadyExists = errors.New("contact already exists")
-	ErrEmptyID              = errors.New("empty id")
-	ErrIsPrimary            = errors.New("is primary")
-	ErrPartnerNotExist      = errors.New("partner does not exist")
-	ErrRecordNotFound       = gorm.ErrRecordNotFound
-	ErrTypeMismatch         = errors.New("type does not match")
-	ErrUniquePrimary        = errors.New("primary contact must be unique")
 )
 
 type User struct {
@@ -42,7 +20,7 @@ type User struct {
 	DeletedAt gorm.DeletedAt
 }
 
-// TableName returns the table name associated to partnersDB.
+// TableName returns the table name associated to UsersDB.
 func (*User) TableName() string {
 	return "chatrooms.users"
 }
@@ -56,9 +34,9 @@ func NewUsersDB(conn *gorm.DB) *UsersDB {
 }
 
 func (db *UsersDB) Create(user User) (uuid.UUID, error) {
-	err := db.conn.WithContext(context.TODO()).Create(&user).Error //no olvidar el context.TODO()
+	err := db.conn.WithContext(context.TODO()).Create(&user).Error
 
-	return user.ID, handleError(err)
+	return user.ID, err
 }
 
 func (db *UsersDB) GetByEmail(email string) (user User, err error) {
@@ -66,17 +44,7 @@ func (db *UsersDB) GetByEmail(email string) (user User, err error) {
 	return
 }
 
-func handleError(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		if constraintErr := constraintToErr[pgErr.ConstraintName]; constraintErr != nil {
-			return constraintErr
-		}
-	}
-
-	return err
+func (db *UsersDB) GetByNickName(nickname string) (user User, err error) {
+	err = db.conn.WithContext(context.TODO()).Where("nickname = ?", nickname).Find(&user).Error
+	return
 }

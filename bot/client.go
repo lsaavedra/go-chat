@@ -39,9 +39,6 @@ func (e *HTTPClientError) Error() string {
 	return fmt.Sprintf("%s requesting %s, %s: %v", http.StatusText(e.HTTPStatusCode), e.ClientName, e.Msg, e.Cause)
 }
 
-// HandleHTTPClientError is intended to handle errors happening on the client side
-// as a result of a request execution.
-// If the error is a Timeout, it is parsed as FailedDependency.
 func HandleHTTPClientError(err error) error {
 	if err, ok := errorAsTimeout(err); ok {
 		return err

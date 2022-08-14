@@ -10,7 +10,7 @@ import (
 )
 
 type response struct {
-	ID        uuid.UUID   `json:"id,omitempty"`
+	ID        *uuid.UUID  `json:"id,omitempty"`
 	Message   string      `json:"message,omitempty"`
 	RawObject interface{} `json:"raw,omitempty"`
 }
@@ -26,7 +26,10 @@ type Handler struct {
 func (h Handler) Create(c echo.Context) error {
 	var createUserRequest api.CreateUserRequest
 	if err := c.Bind(&createUserRequest); err != nil {
-		return c.JSON(http.StatusBadRequest, err)
+		return c.JSON(http.StatusBadRequest, response{Message: err.Error()})
+	}
+	if err := createUserRequest.Check(); err != nil {
+		return c.JSON(http.StatusBadRequest, response{Message: err.Error()})
 	}
 
 	userID, err := h.UsersMgr.Create(createUserRequest)
@@ -35,7 +38,7 @@ func (h Handler) Create(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, response{
-		ID: userID,
+		ID: &userID,
 	})
 }
 
@@ -43,27 +46,16 @@ func (h Handler) Create(c echo.Context) error {
 func (h Handler) VerifyForLogin(c echo.Context) error {
 	var validateUserRequest api.ValidateUserRequest
 	if err := c.Bind(&validateUserRequest); err != nil {
-		//return c.JSON(http.StatusBadRequest, err)
-		return &api.APIError{HTTPStatusCode: http.StatusBadRequest, Cause: err}
+		return c.JSON(http.StatusBadRequest, response{Message: err.Error()})
+	}
+	if err := validateUserRequest.Check(); err != nil {
+		return c.JSON(http.StatusBadRequest, response{Message: err.Error()})
 	}
 
 	b, err := h.UsersMgr.VerifyForLogin(validateUserRequest)
 	if err != nil {
-		//return c.JSON(http.StatusInternalServerError, err.Error())
 		return c.JSON(err.HTTPStatusCode, err)
 	}
 
-	//SetCookie(c, b.FirstName)
-
 	return c.JSON(http.StatusOK, b)
 }
-
-/*
-func SetCookie(c echo.Context, value string) {
-	cookie := new(http.Cookie)
-	cookie.Name = "username"
-	cookie.Value = value
-	cookie.Expires = time.Now().Add(2 * time.Hour)
-	c.SetCookie(cookie)
-}
-*/

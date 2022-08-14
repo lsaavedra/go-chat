@@ -15,9 +15,9 @@
         <div>
             <label for="chatrooms">Please select a chatroom:</label>
             <select name="chatrooms" id="chatrooms">
-                <option value="chatroom-random">Random</option>
-                <option value="chatroom-tech">Tech</option>
-                <option value="chatroom-music">Music</option>
+                <option value="random">Random</option>
+                <option value="tech">Tech</option>
+                <option value="music">Music</option>
             </select>
         </div>
         <p class="form-field-err"></p>
@@ -49,8 +49,8 @@
                 window.location.href = 'http://localhost:8080/chatrooms/' + chatroomSelected + '?nickname=' + nickname;
             })
             .catch((error) => {
-                //console.error('invalid credentials');
-                alert(error.response.data.message)
+                //alert(error.response.data.message)
+                alert('email or password is incorrect')
             })
     }
 </script>

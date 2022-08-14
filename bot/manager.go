@@ -1,7 +1,6 @@
 package bot
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -20,72 +19,45 @@ const (
 	stockNotFoundedMessage   = "Invalid stock code for command /stock=%v"
 	stockServiceNotAvailable = "Stock service is not available"
 	noDataIdentifier         = "N/D"
+	broadcasterChannelName   = "broadcast-channel"
 )
 
 type (
 	stockClient interface {
 		GetStockFile(stockCode string) (StockData, error)
 	}
+	publisher interface {
+		Publish(channelName string, body []byte) error
+	}
 	BotMgr struct {
 		stockClient stockClient
-		Conn        *rabbit.Connection
+		publisher   publisher
+		conn        *rabbit.Connection
 	}
 )
 
-func NewBotMgr(client stockClient, conn *rabbit.Connection) *BotMgr {
+func NewBotMgr(client stockClient, publisher publisher, conn *rabbit.Connection) *BotMgr {
 	return &BotMgr{
 		stockClient: client,
-		Conn:        conn,
+		publisher:   publisher,
+		conn:        conn,
 	}
 }
 
-func (bm *BotMgr) GetAndPublishStockMessage(chatMsg chatrooms.ChatMessage) error {
-	// create a channel
-	ch, err := bm.Conn.Channel()
-	failOnError(err, "Failed to open a channel")
-	defer ch.Close()
+func (bm *BotMgr) GetAndPublishStockPrice(chatMsg chatrooms.ChatMessage) error {
+	stockMsg, _ := bm.GetStockPrice(nil, getStockCode(chatMsg.Text))
 
-	q, err := ch.QueueDeclare(
-		"broadcast-channel", // name
-		false,               // durable
-		false,               // delete when unused
-		false,               // exclusive
-		false,               // no-wait
-		nil,                 // arguments
-	)
-	failOnError(err, "Failed to declare a queue")
-
-	stockMsg, err := bm.GetStockPrice(nil, getStockCode(chatMsg.Text))
-	// improve this log error because is returning *ApiError{nil}
-	//if !errors.Is(err, &api.APIError{}) {
-	//	log.Info().Err(err)
-	//}
 	chatMsg.Text = stockMsg
 	chatMsg.Username = "Bot"
 	chatMsgAsByte, err := json.Marshal(chatMsg)
 	if err != nil {
 		log.Error().Err(err)
 	}
-
-	err = ch.PublishWithContext(
-		context.TODO(),
-		"",     // exchange
-		q.Name, // routing key
-		false,  // mandatory
-		false,  // immediate
-		rabbit.Publishing{
-			ContentType: "text/plain",
-			Body:        chatMsgAsByte,
-		})
-	failOnError(err, "Failed to publish a message")
-	log.Printf(" [x] Channel: %s - Sent %s\n", q.Name, string(chatMsgAsByte))
-	return nil
-}
-
-func failOnError(err error, msg string) {
+	err = bm.publisher.Publish(broadcasterChannelName, chatMsgAsByte)
 	if err != nil {
-		log.Panic().Err(err).Msg(msg)
+		return err
 	}
+	return nil
 }
 
 func (bm *BotMgr) GetStockPrice(ctx echo.Context, stockCode string) (string, *api.APIError) {

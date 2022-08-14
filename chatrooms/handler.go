@@ -1,7 +1,6 @@
 package chatrooms
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,7 +17,9 @@ import (
 )
 
 const (
-	stockCommandString = "/stock="
+	stockCommandString     = "/stock="
+	messagesChannelName    = "chat-channel"
+	broadcasterChannelName = "broadcast-channel"
 )
 
 var (
@@ -38,11 +39,15 @@ type (
 	botMgr interface {
 		GetStockPrice(ctx echo.Context, stockCode string) (string, *api.APIError)
 	}
+	publisher interface {
+		Publish(channelName string, body []byte) error
+		Consume(channelName string) (<-chan rabbit.Delivery, error)
+	}
 
 	Handler struct {
 		BotManager  botMgr
-		QueueCon    *rabbit.Connection
 		RedisClient *redis.Client
+		Publisher   publisher
 	}
 
 	ChatMessage struct {
@@ -75,12 +80,11 @@ func (h *Handler) HandleConnections(c echo.Context) error {
 	for {
 		var msg ChatMessage
 		err := ws.ReadJSON(&msg)
-		fmt.Printf("Message received: %v\n", msg)
+		log.Info().Msg(fmt.Sprintf("Message received: %v\n", msg))
 		if err != nil {
 			delete(clients, ws)
 			break
 		}
-		fmt.Printf("Active clients: %v\n", clients)
 		err = h.publishMessage(msg)
 		if err != nil {
 			log.Error().Err(err).Msg("error publishing msg")
@@ -93,7 +97,7 @@ func (h *Handler) HandleConnections(c echo.Context) error {
 func (h *Handler) sendPreviousMessages(ws *websocket.Conn) {
 	chatMessages, err := h.RedisClient.LRange(roomId, 0, -1).Result()
 	if err != nil {
-		//panic(err)
+		panic(err)
 	}
 	for _, chatMessage := range chatMessages {
 		var msg ChatMessage
@@ -111,7 +115,7 @@ func messageClients(msg ChatMessage) {
 func messageClient(client *websocket.Conn, msg ChatMessage) {
 	err := client.WriteJSON(msg)
 	if err != nil && unsafeError(err) {
-		log.Printf("error: %v", err)
+		log.Error().Err(err)
 		client.Close()
 		delete(clients, client)
 	}
@@ -120,11 +124,11 @@ func messageClient(client *websocket.Conn, msg ChatMessage) {
 func (h *Handler) storeInRedis(msg ChatMessage) {
 	json, err := json.Marshal(msg)
 	if err != nil {
-		//panic(err)
+		panic(err)
 	}
 
 	if err := h.RedisClient.RPush(roomId, json).Err(); err != nil {
-		//panic(err)
+		panic(err)
 	}
 }
 
@@ -139,82 +143,31 @@ func (h *Handler) HandleMessages() {
 	}
 }
 
-// If a message is sent while a client is closing, ignore the error
 func unsafeError(err error) bool {
 	return !websocket.IsCloseError(err, websocket.CloseGoingAway) && err != io.EOF
 }
 
 func (h *Handler) publishMessage(msg ChatMessage) error {
-	// create a channel
-	ch, err := h.QueueCon.Channel()
-	failOnError(err, "Failed to open a channel")
-	defer ch.Close()
-
-	q, err := ch.QueueDeclare(
-		"chat-channel", // name
-		false,          // durable
-		false,          // delete when unused
-		false,          // exclusive
-		false,          // no-wait
-		nil,            // arguments
-	)
-	failOnError(err, "Failed to declare a queue")
 
 	msgByte, _ := json.Marshal(msg)
-
-	err = ch.PublishWithContext(
-		context.TODO(),
-		"",     // exchange
-		q.Name, // routing key
-		false,  // mandatory
-		false,  // immediate
-		rabbit.Publishing{
-			ContentType: "text/plain",
-			Body:        msgByte,
-		})
-	failOnError(err, "Failed to publish a message")
-	log.Printf(" [x] Channel: %s - Sent %s\n", q.Name, msgByte)
+	err := h.Publisher.Publish(messagesChannelName, msgByte)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func failOnError(err error, msg string) {
+func (h *Handler) WaitingForQueueMsgs() {
+	msgs, err := h.Publisher.Consume(broadcasterChannelName)
 	if err != nil {
-		log.Panic().Err(err).Msg(msg)
+		log.Error().Err(err)
 	}
-}
-
-func (h *Handler) ReadAndProcess() {
-	ch, err := h.QueueCon.Channel()
-	failOnError(err, "Failed to open a channel")
-	defer ch.Close()
-
-	q, err := ch.QueueDeclare(
-		"broadcast-channel", // name
-		false,               // durable
-		false,               // delete when unused
-		false,               // exclusive
-		false,               // no-wait
-		nil,                 // arguments
-	)
-	failOnError(err, "Failed to declare a queue")
-
-	msgs, err := ch.Consume(
-		q.Name, // queue
-		"",     // consumer
-		true,   // auto-ack
-		false,  // exclusive
-		false,  // no-local
-		false,  // no-wait
-		nil,    // args
-	)
-	failOnError(err, "Failed to register a consumer")
 
 	var stockBotChannelReceiver chan struct{}
 
 	go func() {
 		for d := range msgs {
-			// for this case we should only send the message for the client who sends the message
-			log.Printf("Received a message: %s", d.Body)
+			log.Info().Msg(fmt.Sprintf("Received message from bot: %s", d.Body))
 			for client := range clients {
 				var msg ChatMessage
 				err := json.Unmarshal(d.Body, &msg)
@@ -223,7 +176,7 @@ func (h *Handler) ReadAndProcess() {
 				}
 				err = client.WriteJSON(msg)
 				if err != nil && unsafeError(err) {
-					log.Printf("error: %v", err)
+					log.Error().Err(err)
 					client.Close()
 					delete(clients, client)
 				}
@@ -231,6 +184,6 @@ func (h *Handler) ReadAndProcess() {
 
 		}
 	}()
-	log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
+	log.Info().Msg("Waiting for new messages in bot consumer")
 	<-stockBotChannelReceiver
 }

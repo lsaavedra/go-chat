@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/go-redis/redis"
-	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	rabbit "github.com/rabbitmq/amqp091-go"
@@ -18,57 +17,59 @@ import (
 	"go-chat/chatrooms"
 	"go-chat/configs"
 	"go-chat/db"
+	"go-chat/events"
 	"go-chat/messages"
 	"go-chat/router"
 	"go-chat/users"
 )
 
-const (
-	DefaultMigrationPath = "file://db/migrations"
-	connectionError      = "Error setting up DB connection"
-)
+const serviceName = "go-chat"
 
 func main() {
-	log.Print("starting go-chat service \n")
+	log.Info().Msg(fmt.Sprintf("starting %s service \n", serviceName))
 
-	environment, err := configs.Environment{
+	env, err := configs.Environment{
 		ServerHost: os.Getenv(configs.ServerHostKey),
 		ServerPort: os.Getenv(configs.ServerPortKey),
-		DbURL:      os.Getenv(configs.DbURLKey),
+		QueueUrl:   os.Getenv(configs.QueueUrl),
+		CacheUrl:   os.Getenv(configs.CacheUrl),
+		DbHost:     os.Getenv(configs.DbHost),
+		DbPort:     os.Getenv(configs.DbPort),
+		DbUser:     os.Getenv(configs.DbUser),
+		DbPwd:      os.Getenv(configs.DbPwd),
+		DbName:     os.Getenv(configs.DbName),
+		DbSchema:   os.Getenv(configs.DbSchema),
 	}.Check()
-
 	if err != nil {
-		log.Fatal().Err(err)
+		panic(err)
 	}
 
+	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", env.DbHost, env.DbPort, env.DbUser, env.DbPwd, env.DbName)
 	conn, err := gorm.Open(postgres.New(postgres.Config{
-		DSN:                  environment.DbURL,
+		DSN:                  dsn,
 		PreferSimpleProtocol: true,
 	}), &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
-
 	if err != nil {
-		log.Fatal().Err(err)
+		log.Error().Err(err)
 	}
 
-	initialMigration(conn)
-
-	queueCon, err := rabbit.Dial("amqp://guest:guest@localhost:5672/") // change to env vars
+	queueCon, err := rabbit.Dial(env.QueueUrl)
 	failOnError(err, "Failed to connect to RabbitMQ")
-	defer queueCon.Close()
+	queueClient := events.NewQueueClient(serviceName, queueCon)
+	defer queueClient.CloseConnection()
 
 	redisClient := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
+		Addr: env.CacheUrl,
 	})
+	defer redisClient.Close()
 
 	usersDB := db.NewUsersDB(conn)
 	messagesDB := db.NewMessagesDB(conn)
 
 	usersMgr := users.NewUsersMgr(usersDB)
-	messagesMgr := messages.NewMessagesMgr(messagesDB)
+	messagesMgr := messages.NewMessagesMgr(messagesDB, usersDB)
 
 	usersHandler := users.Handler{
 		UsersMgr: usersMgr,
@@ -77,80 +78,27 @@ func main() {
 	botClient := bot.StocksClient{
 		Getter: &http.Client{},
 	}
-	botMgr := bot.NewBotMgr(botClient, queueCon)
+
+	botMgr := bot.NewBotMgr(botClient, queueClient, nil)
 
 	chatroomsHandler := chatrooms.Handler{
 		BotManager:  botMgr,
-		QueueCon:    queueCon,
 		RedisClient: redisClient,
+		Publisher:   queueClient,
 	}
 
-	msgProcessor := messages.NewProcessor(messagesMgr, botMgr, queueCon)
+	msgProcessor := messages.NewProcessor(messagesMgr, botMgr, queueClient)
 
 	apiHandlers := router.NewAPIHandlers(&usersHandler, &chatroomsHandler)
 	r := router.Router(apiHandlers)
 
 	go chatroomsHandler.HandleMessages()
-	go msgProcessor.ReadAndProcess()
-	go chatroomsHandler.ReadAndProcess()
+	go msgProcessor.WaitForQueueMsgs()
+	go chatroomsHandler.WaitingForQueueMsgs()
 
-	log.Print("successfully started go-chat service \n")
-	r.Start(":" + environment.ServerPort)
+	log.Info().Msg(fmt.Sprintf("successfully started %s service \n", serviceName))
+	r.Start(":" + env.ServerPort)
 
-}
-
-func initialMigration(conn *gorm.DB) {
-	log.Print("starting db migration \n")
-	err := conn.AutoMigrate(
-		&db.User{},
-		&db.Message{},
-	)
-
-	if err != nil {
-		log.Fatal().Err(err).Msg("unable to run migrations")
-	}
-	log.Print("finished migrations \n")
-}
-
-// MigrateSchemaWithPath runs new upward data migrations.
-func migrateSchemaWithPath(conn *gorm.DB) {
-	user := "postgres"
-	pwd := "postgres"
-	host := "localhost"
-	port := "7004"
-	dbName := "chatrooms"
-	forceMigrations := true
-
-	databaseURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable&search_path=go-chat,public", user, pwd, host, port, dbName)
-
-	migrations, err := migrate.New(DefaultMigrationPath, databaseURL)
-	if err != nil {
-		log.Fatal().Err(err).Msg("error connecting to the database during migration")
-	}
-
-	if forceMigrations {
-		if err := migrations.Force(-1); err != nil {
-			log.Fatal().Err(err).Msg("error running migration force")
-		}
-	}
-
-	if err = migrations.Up(); err != nil {
-		if err != migrate.ErrNoChange {
-			log.Fatal().Err(err).Msg("error running migration up")
-		}
-
-		log.Error().Msgf("migration: %v", err)
-	}
-
-	defer func() {
-		sourceErr, databaseErr := migrations.Close()
-		if sourceErr != nil {
-			log.Error().Err(sourceErr).Send()
-		}
-		if databaseErr != nil {
-			log.Error().Err(databaseErr).Send()
-		}
-	}()
 }
 
 func failOnError(err error, msg string) {

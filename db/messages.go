@@ -18,7 +18,7 @@ type Message struct {
 	DeletedAt gorm.DeletedAt
 }
 
-// TableName returns the table name associated to partnersDB.
+// TableName returns the table name associated to MessagesDB.
 func (*Message) TableName() string {
 	return "chatrooms.messages"
 }
@@ -32,7 +32,7 @@ func NewMessagesDB(conn *gorm.DB) *MessagesDB {
 }
 
 func (db *MessagesDB) Create(message Message) (uuid.UUID, error) {
-	err := db.conn.WithContext(context.TODO()).Create(&message).Error //no olvidar el context.TODO()
+	err := db.conn.WithContext(context.TODO()).Create(&message).Error
 
 	return message.ID, err
 }
