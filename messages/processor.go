@@ -2,8 +2,6 @@ package messages
 
 import (
 	"encoding/json"
-	"regexp"
-	"strings"
 
 	rabbit "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog/log"
@@ -14,8 +12,6 @@ import (
 
 type (
 	Processor struct {
-		// tendrá los managers de cada uno
-		// cliente de rabbit se suscribe y consume el canal
 		BotMgr      *bot.BotMgr
 		MessagesMgr *MessagesMgr
 		Conn        *rabbit.Connection
@@ -67,7 +63,7 @@ func (p *Processor) ReadAndProcess() {
 				// ojo con esto porque n o debería poder pasar
 				log.Error().Err(err).Msg("failed unmarshalling message")
 			}
-			if isStockMessage(chatMessage.Text) {
+			if chatMessage.IsStockCommand() {
 				log.Info().Msg("Calling bot manager")
 				err := p.BotMgr.GetAndPublishStockMessage(chatMessage)
 				if err != nil {
@@ -89,14 +85,4 @@ func failOnError(err error, msg string) {
 	if err != nil {
 		log.Panic().Err(err).Msg(msg)
 	}
-}
-
-func isStockMessage(message string) bool {
-	r, _ := regexp.Compile("/stock=")
-	return r.MatchString(message)
-}
-
-func getStockCode(message string) string {
-	// probably here it could handle not understood messages or format
-	return strings.Split(message, "=")[1]
 }

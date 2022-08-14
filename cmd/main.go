@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/go-redis/redis"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
@@ -52,11 +53,16 @@ func main() {
 	}
 
 	initialMigration(conn)
-	//migrateSchemaWithPath(conn)
 
 	queueCon, err := rabbit.Dial("amqp://guest:guest@localhost:5672/") // change to env vars
 	failOnError(err, "Failed to connect to RabbitMQ")
 	defer queueCon.Close()
+
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
 
 	usersDB := db.NewUsersDB(conn)
 	messagesDB := db.NewMessagesDB(conn)
@@ -67,22 +73,21 @@ func main() {
 	usersHandler := users.Handler{
 		UsersMgr: usersMgr,
 	}
-	messagesHandler := messages.Handler{
-		MessagesMgr: messagesMgr,
-	}
+
 	botClient := bot.StocksClient{
 		Getter: &http.Client{},
 	}
 	botMgr := bot.NewBotMgr(botClient, queueCon)
 
 	chatroomsHandler := chatrooms.Handler{
-		BotManager: botMgr,
-		QueueCon:   queueCon,
+		BotManager:  botMgr,
+		QueueCon:    queueCon,
+		RedisClient: redisClient,
 	}
 
 	msgProcessor := messages.NewProcessor(messagesMgr, botMgr, queueCon)
 
-	apiHandlers := router.NewAPIHandlers(&usersHandler, &messagesHandler, &chatroomsHandler)
+	apiHandlers := router.NewAPIHandlers(&usersHandler, &chatroomsHandler)
 	r := router.Router(apiHandlers)
 
 	go chatroomsHandler.HandleMessages()
@@ -141,11 +146,9 @@ func migrateSchemaWithPath(conn *gorm.DB) {
 		sourceErr, databaseErr := migrations.Close()
 		if sourceErr != nil {
 			log.Error().Err(sourceErr).Send()
-			//log.Err(sourceErr).Send()
 		}
 		if databaseErr != nil {
 			log.Error().Err(databaseErr).Send()
-			//log.Err(databaseErr).Send()
 		}
 	}()
 }

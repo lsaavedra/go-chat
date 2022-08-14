@@ -7,8 +7,8 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"strings"
 
+	"github.com/go-redis/redis"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo"
 	rabbit "github.com/rabbitmq/amqp091-go"
@@ -17,16 +17,21 @@ import (
 	"go-chat/api"
 )
 
+const (
+	stockCommandString = "/stock="
+)
+
 var (
-	clients     = make(map[*websocket.Conn]bool) // is a list of all the currently active clients (or open WebSockets).
-	broadcaster = make(chan ChatMessage)         //  is a single channel that is responsible for sending and receiving our ChatMessage data structure.
-	upgrader    = websocket.Upgrader{            // is a bit of a clunker; it’s necessary to “upgrade” Gorilla’s incoming requests into a WebSocket connection.
+	clients      = make(map[*websocket.Conn]bool)
+	broadcaster  = make(chan ChatMessage)
+	connUpgrader = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true
 		},
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 	}
+	roomId string
 )
 
 type (
@@ -35,8 +40,9 @@ type (
 	}
 
 	Handler struct {
-		BotManager botMgr
-		QueueCon   *rabbit.Connection
+		BotManager  botMgr
+		QueueCon    *rabbit.Connection
+		RedisClient *redis.Client
 	}
 
 	ChatMessage struct {
@@ -47,86 +53,88 @@ type (
 	}
 )
 
-func (ch *ChatMessage) isStockCommand() bool {
-	r, _ := regexp.Compile("/stock=")
+func (ch *ChatMessage) IsStockCommand() bool {
+	r, _ := regexp.Compile(stockCommandString)
 	return r.MatchString(ch.Text)
 }
 
 func (h *Handler) HandleConnections(c echo.Context) error {
-	/*
-		When a new user joins the chat, three things should happen:
-		1. They should be set up to receive messages from other clients.
-		2. They should be able to send their own messages.
-		3. They should receive a full history of the previous chat (backed by Redis).
-	*/
-	// resolving point 1.
-	ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
+	ws, err := connUpgrader.Upgrade(c.Response(), c.Request(), nil)
 	if err != nil {
 		log.Fatal().Err(err)
 	}
-	// ensure connection close when function returns
 	defer ws.Close()
 	clients[ws] = true
-	fmt.Printf("Client connections %v\n", clients)
+	roomId = c.Param("id")
 
-	// resolving point 2. // waiting for incoming messages
+	if h.RedisClient.Exists(roomId).Val() != 0 {
+		h.sendPreviousMessages(ws)
+	}
+
+	// waiting for incoming messages
 	for {
 		var msg ChatMessage
-		// Read in a new message as JSON and map it to a Message object
 		err := ws.ReadJSON(&msg)
 		fmt.Printf("Message received: %v\n", msg)
 		if err != nil {
 			delete(clients, ws)
 			break
 		}
-		// send new message to the channel
-		//broadcaster <- msg
-		//
 		fmt.Printf("Active clients: %v\n", clients)
-		if msg.isStockCommand() {
-			err = h.publishMessage(msg)
-			if err != nil {
-				log.Error().Err(err).Msg("error publishing msg")
-			}
-		} else {
-			broadcaster <- msg
+		err = h.publishMessage(msg)
+		if err != nil {
+			log.Error().Err(err).Msg("error publishing msg")
 		}
-		// ----------------- publish message to queueu
-		/*
-
-			err = h.publishMessage(msg)
-			if err != nil {
-				log.Error().Err(err).Msg("error publishing msg")
-			}
-		*/
-		// ------------------------------------------
+		broadcaster <- msg
 	}
 	return nil
 }
 
+func (h *Handler) sendPreviousMessages(ws *websocket.Conn) {
+	chatMessages, err := h.RedisClient.LRange(roomId, 0, -1).Result()
+	if err != nil {
+		//panic(err)
+	}
+	for _, chatMessage := range chatMessages {
+		var msg ChatMessage
+		json.Unmarshal([]byte(chatMessage), &msg)
+		messageClient(ws, msg)
+	}
+}
+
+func messageClients(msg ChatMessage) {
+	for client := range clients {
+		messageClient(client, msg)
+	}
+}
+
+func messageClient(client *websocket.Conn, msg ChatMessage) {
+	err := client.WriteJSON(msg)
+	if err != nil && unsafeError(err) {
+		log.Printf("error: %v", err)
+		client.Close()
+		delete(clients, client)
+	}
+}
+
+func (h *Handler) storeInRedis(msg ChatMessage) {
+	json, err := json.Marshal(msg)
+	if err != nil {
+		//panic(err)
+	}
+
+	if err := h.RedisClient.RPush(roomId, json).Err(); err != nil {
+		//panic(err)
+	}
+}
+
 func (h *Handler) HandleMessages() {
 	for {
-		// grab any next message from channel
 		msg := <-broadcaster
 		fmt.Printf("Message read from broadcaster: %v\n", msg)
-		/// validate is stock message
-		/*
-			if isStockMessage(msg.Text) {
-				stockCode := getStockCode(msg.Text)
-				fmt.Println("stock message required", stockCode)
-				result, _ := h.BotManager.GetStockPrice(nil, stockCode)
-				fmt.Println("stock price", result)
-				msg.Text = result
-			}
-		*/
-		/// end validate
-		for client := range clients {
-			err := client.WriteJSON(msg)
-			if err != nil && unsafeError(err) {
-				log.Printf("error: %v", err)
-				client.Close()
-				delete(clients, client)
-			}
+		if !msg.IsStockCommand() {
+			h.storeInRedis(msg)
+			messageClients(msg)
 		}
 	}
 }
@@ -134,16 +142,6 @@ func (h *Handler) HandleMessages() {
 // If a message is sent while a client is closing, ignore the error
 func unsafeError(err error) bool {
 	return !websocket.IsCloseError(err, websocket.CloseGoingAway) && err != io.EOF
-}
-
-func isStockMessage(message string) bool {
-	r, _ := regexp.Compile("/stock=")
-	return r.MatchString(message)
-}
-
-func getStockCode(message string) string {
-	// probably here it could handle not understood messages or format
-	return strings.Split(message, "=")[1]
 }
 
 func (h *Handler) publishMessage(msg ChatMessage) error {
@@ -211,7 +209,7 @@ func (h *Handler) ReadAndProcess() {
 	)
 	failOnError(err, "Failed to register a consumer")
 
-	var forever chan struct{}
+	var stockBotChannelReceiver chan struct{}
 
 	go func() {
 		for d := range msgs {
@@ -234,5 +232,5 @@ func (h *Handler) ReadAndProcess() {
 		}
 	}()
 	log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
-	<-forever
+	<-stockBotChannelReceiver
 }

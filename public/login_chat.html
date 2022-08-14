@@ -3,13 +3,25 @@
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
 <body>
+    <div class="jumbotron">
+        <h1>Welcome to Go Chat!</h1>
+    </div>
     <form id="form" class="login">
         <i class="fa fa-user fa-5x"></i>
         <input id="userName" name="userName" placeholder="Enter your user name" autofocus>
         <p class="form-field-err"></p>
         <input id="password" name="password" type="password" placeholder="Enter your password">
+        <p class="form-space"></p>
+        <div>
+            <label for="chatrooms">Please select a chatroom:</label>
+            <select name="chatrooms" id="chatrooms">
+                <option value="chatroom-random">Random</option>
+                <option value="chatroom-tech">Tech</option>
+                <option value="chatroom-music">Music</option>
+            </select>
+        </div>
         <p class="form-field-err"></p>
-        <button type="submit" form="form" class="login__submit-button">Submit</button>
+        <button type="submit" form="form" class="login__submit-button">Login</button>
     </form>
     <div id="login-msg"></div>
 </body>
@@ -26,6 +38,7 @@
         console.log(event.target);
         const userName = event.target.querySelector('#userName').value;
         const password = event.target.querySelector('#password').value;
+        const chatroomSelected = event.target.querySelector('#chatrooms').value
 
         instance.post('/api/v1/users/login', {
             email: userName,
@@ -33,8 +46,7 @@
         })
             .then(response => {
                 let nickname = response.data.nick_name
-                console.log(response.data.nick_name)
-                window.location.href = 'http://localhost:8080/chatrooms/2?nickname=' + nickname;
+                window.location.href = 'http://localhost:8080/chatrooms/' + chatroomSelected + '?nickname=' + nickname;
             })
             .catch((error) => {
                 //console.error('invalid credentials');

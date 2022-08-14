@@ -5,27 +5,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <script type="text/javascript">
         window.addEventListener("DOMContentLoaded", (_) => {
-            let websocket = new WebSocket("ws://" + window.location.host + "/websocket");
-            let chatHistory = document.getElementById("chat-text");
+            let chatMsgsSize = 50
+            const roomId = window.location.pathname.split("/")[2]
+            let websocket = new WebSocket("ws://" + window.location.host + "/websocket/" + roomId);
+            let chatHistory = document.getElementById("chat-history");
 
-            // This to set the nickname value field directly from url
-            const params = new URLSearchParams(window.location.search) // para traer el nickname de la url
+            const params = new URLSearchParams(window.location.search) // to get uri query params
             const nickName = params.get('nickname')
-            console.log(nickName)
-            var userNameField = document.getElementById("input-username");
+            let userNameField = document.getElementById("input-username");
             userNameField.setAttribute("value", nickName);
             userNameField.readOnly = true;
-            // end of set value
 
+            let chatRoomDiv = document.getElementById('chatroom-name')
+            chatRoomDiv.innerHTML = `<span><strong>Welcome to room: ${roomId}</strong></span>`;
+
+            function appendLog(item) {
+                let numb = chatHistory.childElementCount;
+                if (numb < chatMsgsSize) {
+                    chatHistory.appendChild(item);
+                } else {
+                    chatHistory.firstElementChild.remove();
+                    chatHistory.appendChild(item);
+                }
+                let doScroll = chatHistory.scrollTop > chatHistory.scrollHeight - chatHistory.clientHeight - 1;
+                if (doScroll) {
+                    chatHistory.scrollTop = chatHistory.scrollHeight - chatHistory.clientHeight;
+                }
+                chatHistory.scrollTop = chatHistory.scrollHeight; // Auto scroll to the bottom (added at end)
+            }
+
+            // for every new websocket message received from the server
             websocket.addEventListener("message", function (e) {
                 let data = JSON.parse(e.data);
-                console.log(data)
-                // creating html element
-                let p = document.createElement("p");
-                p.innerHTML = `<strong>${data.username}</strong>: ${data.text}`;
-
-                chatHistory.append(p);
-                chatHistory.scrollTop = chatHistory.scrollHeight; // Auto scroll to the bottom
+                let item = document.createElement("div");
+                item.innerHTML = `<strong>${data.username}</strong>: ${data.text}`;
+                appendLog(item);
             });
 
             let form = document.getElementById("input-form");
@@ -33,12 +47,19 @@
                 event.preventDefault();
                 let username = document.getElementById("input-username");
                 let text = document.getElementById("input-text");
-                let roomValue = "2" // this value need to be changed to support multiple rooms
+                if (!websocket) { // agregado nvo
+                    console.error("fail connection to server")
+                    return false;
+                }
+                if (!text.value) {
+                    console.error("cannot send empty msg")
+                    return false;
+                }
                 websocket.send(
                     JSON.stringify({
                         username: username.value,
                         text: text.value,
-                        room : roomValue,
+                        room : roomId,
                         timestamp : new Date().toISOString(),
                     })
                 );
@@ -51,8 +72,9 @@
 <div class="container">
     <div class="jumbotron">
         <h1>Go Chat!</h1>
+        <div id="chatroom-name"></div>
     </div>
-    <div id="log"></div>
+    <div id="chat-history"></div>
     <form id="input-form" class="form-inline">
         <div class="form-group">
             <input id="input-username" type="text" class="form-control" placeholder="Enter username"/>
