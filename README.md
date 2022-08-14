@@ -4,7 +4,7 @@ Project to create a simple-browser chat application with a minimal frontend and 
 
 ### Diagram architecture
 
-![Overview]([https://github.com/lsaavedra/go-chat/issues/2#issue-1338288484](https://user-images.githubusercontent.com/9138602/184556862-0091bffb-9cc7-4eb3-837c-cbc0b97d5186.jpg))
+![Overview]([https://user-images.githubusercontent.com/9138602/184556862-0091bffb-9cc7-4eb3-837c-cbc0b97d5186.jpg))
 
 ##### Run Project
 1. Use docker-compose command to start services (Postgres, Redis and RabbitMQ):
